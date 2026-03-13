@@ -1,0 +1,253 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Auth (NextAuth) ───────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── Core Models ───────────────────────────────────────────────
+
+enum UserRole {
+  HOMEOWNER
+  PROVIDER
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  role          UserRole  @default(HOMEOWNER)
+  phone         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts   Account[]
+  sessions   Session[]
+  provider   Provider?
+  properties Property[]
+  reviews    Review[]
+  bookings   Booking[]
+}
+
+model Provider {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName    String
+  slug            String   @unique
+  bio             String?  @db.Text
+  phone           String
+  website         String?
+  licenseNumber   String?
+  yearsInBusiness Int?
+  responseTime    String?
+  profileImage    String?
+  coverImage      String?
+  isVerified      Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  services     ProviderService[]
+  serviceAreas ServiceArea[]
+  photos       Photo[]
+  reviews      Review[]
+  bookings     Booking[]
+  availability Availability[]
+}
+
+model ServiceType {
+  id          String @id @default(cuid())
+  name        String @unique
+  slug        String @unique
+  description String?
+  icon        String?
+
+  providerServices ProviderService[]
+  bookings         Booking[]
+}
+
+model ProviderService {
+  id            String      @id @default(cuid())
+  providerId    String
+  provider      Provider    @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  serviceTypeId String
+  serviceType   ServiceType @relation(fields: [serviceTypeId], references: [id])
+  priceMin      Decimal?    @db.Decimal(10, 2)
+  priceMax      Decimal?    @db.Decimal(10, 2)
+  priceUnit     String?
+  description   String?
+
+  @@unique([providerId, serviceTypeId])
+}
+
+model ServiceArea {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  zipCode    String
+  city       String?
+  state      String?
+
+  @@unique([providerId, zipCode])
+  @@index([zipCode])
+}
+
+model Availability {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  dayOfWeek  Int
+  startTime  String
+  endTime    String
+
+  @@unique([providerId, dayOfWeek])
+}
+
+// ─── Properties & Maintenance ──────────────────────────────────
+
+model Property {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address     String
+  city        String
+  state       String
+  zipCode     String
+  septicType  String?
+  tankSize    String?
+  installYear Int?
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bookings       Booking[]
+  serviceRecords ServiceRecord[]
+}
+
+model ServiceRecord {
+  id           String    @id @default(cuid())
+  propertyId   String
+  property     Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  bookingId    String?   @unique
+  booking      Booking?  @relation(fields: [bookingId], references: [id])
+  serviceDate  DateTime
+  serviceType  String
+  providerName String
+  notes        String?   @db.Text
+  cost         Decimal?  @db.Decimal(10, 2)
+  nextDueDate  DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+// ─── Bookings ──────────────────────────────────────────────────
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Booking {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  providerId    String
+  provider      Provider      @relation(fields: [providerId], references: [id])
+  propertyId    String
+  property      Property      @relation(fields: [propertyId], references: [id])
+  serviceTypeId String
+  serviceType   ServiceType   @relation(fields: [serviceTypeId], references: [id])
+  status        BookingStatus @default(PENDING)
+  requestedDate DateTime
+  confirmedDate DateTime?
+  completedDate DateTime?
+  notes         String?       @db.Text
+  estimatedCost Decimal?      @db.Decimal(10, 2)
+  finalCost     Decimal?      @db.Decimal(10, 2)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  review        Review?
+  serviceRecord ServiceRecord?
+  photos        Photo[]
+}
+
+// ─── Reviews ───────────────────────────────────────────────────
+
+model Review {
+  id          String   @id @default(cuid())
+  rating      Int
+  title       String?
+  comment     String?  @db.Text
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id])
+  bookingId   String   @unique
+  booking     Booking  @relation(fields: [bookingId], references: [id])
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([providerId])
+}
+
+// ─── Photos ────────────────────────────────────────────────────
+
+model Photo {
+  id         String    @id @default(cuid())
+  url        String
+  key        String
+  caption    String?
+  providerId String?
+  provider   Provider? @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  bookingId  String?
+  booking    Booking?  @relation(fields: [bookingId], references: [id])
+  uploadedBy String
+  createdAt  DateTime  @default(now())
+}
